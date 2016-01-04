@@ -97,13 +97,19 @@ class HttpCacheListener extends AbstractListenerAggregate
             return;
         }
 
+
+        /** @var $request HttpRequest */
+        $request = $e->getRequest();
+
         /* @var $headers Headers */
         $headers = $response->getHeaders();
 
         $this->setExpires($headers)
+            ->setEtag($headers, $response)
             ->setCacheControl($headers)
             ->setPragma($headers)
-            ->setVary($headers);
+            ->setVary($headers)
+            ->setNotModified($request, $response);
     }
 
     /**
@@ -126,7 +132,7 @@ class HttpCacheListener extends AbstractListenerAggregate
             return;
         }
 
-        $cacheConfig = $this->config['controllers'];
+            $cacheConfig = $this->config['controllers'];
         $controller  = $e
             ->getRouteMatch()
             ->getParam('controller');
@@ -269,6 +275,46 @@ class HttpCacheListener extends AbstractListenerAggregate
         ) {
             $vary = new Header\Vary($this->cacheConfig['vary']['value']);
             $headers->addHeader($vary);
+        }
+
+        return $this;
+    }
+
+    /**
+     * @param Headers $headers
+     * @param HttpResponse $response
+     * @return $this
+     */
+    public function setEtag(Headers $headers, HttpResponse $response)
+    {
+        if ( ! empty($this->cacheConfig['etag']['value'])
+            && (! $headers->has('etag')
+                || ! empty($this->cacheConfig['etag']['override']))
+        ) {
+            $etag = new Header\Etag(md5($response->getContent()));
+            $headers->addHeader($etag);
+        }
+
+        return $this;
+    }
+
+    /**
+     * @param HttpRequest $request
+     * @param HttpResponse $response
+     * @return $this
+     */
+    public function setNotModified(HttpRequest $request, HttpResponse $response)
+    {
+        if (!$request->getHeaders()->has('ETag')) {
+            return $this;
+        }
+
+        $etags = array($request->getHeaders()->get('ETag')->getFieldValue());
+
+        if (in_array($response->getHeaders()->get('ETag')->getFieldValue(), $etags)
+            || in_array('*', $etags)) {
+            $response->setStatusCode(304);
+            $response->setContent(null);
         }
 
         return $this;
